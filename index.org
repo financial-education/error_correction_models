@@ -1,0 +1,24 @@
+#+title: Error Correction Models
+#+author: Matt Brigida, Ph.D.
+#+SETUPFILE: https://fniessen.github.io/org-html-themes/org/theme-readtheorg.setup
+#+HTML_HEAD: <style>pre.src{background:#343131;color:white;} </style>
+#+PROPERTY: header-args    :exports none
+
+
+We'll get the data from the FRED API using the =quantmod= R package, and then we'll estimate error-correction models in both Python and R.  For some reason the python package to access FRED (=fredapi=) requires an API key whereas =quantmod= does not.  
+
+
+
+#+begin_src R :session ecm
+library(quantmod)
+
+dep <- getSymbols('DPSACBW027SBOG', auto.assign=FALSE, src="FRED")
+m2 <- getSymbols('WM2NS', auto.assign=FALSE, src="FRED")
+data <- merge.xts(dep, m2, join = 'inner')
+#+end_src
+
+#+RESULTS:
+
+#+begin_src R :session ecm
+
+#+end_src
