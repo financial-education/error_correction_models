@@ -2,23 +2,185 @@
 #+author: Matt Brigida, Ph.D.
 #+SETUPFILE: https://fniessen.github.io/org-html-themes/org/theme-readtheorg.setup
 #+HTML_HEAD: <style>pre.src{background:#343131;color:white;} </style>
-#+PROPERTY: header-args    :exports none
+#+PROPERTY: header-args :exports none :eval no
 
 
 We'll get the data from the FRED API using the =quantmod= R package, and then we'll estimate error-correction models in both Python and R.  For some reason the python package to access FRED (=fredapi=) requires an API key whereas =quantmod= does not.  
 
-
-
-#+begin_src R :session ecm
+#+begin_src R :session ecm :eval no :results none :exports code
 library(quantmod)
+library(tseries)
+library(EIAdata)
+#+end_src
 
-dep <- getSymbols('DPSACBW027SBOG', auto.assign=FALSE, src="FRED")
-m2 <- getSymbols('WM2NS', auto.assign=FALSE, src="FRED")
-data <- merge.xts(dep, m2, join = 'inner')
+
+* 1 vs 2 Month Crude Oil Futures
+
+#+begin_src R :session ecm :eval no :results none :exports code
+key <- source("~/eia_key")$value
+one_month <- getEIA('PET.RCLC1.W', key = key)
+two_month <- getEIA('PET.RCLC2.W', key = key)
+#+end_src
+
+#+begin_src R :session ecm :results output :exports both :eval no
+oil_data <- merge.xts(one_month, two_month, join="inner")
+oil_spurious_reg <- lm(I(log(oil_data$PET.RCLC2.W)) ~ I(log(oil_data$PET.RCLC1.W)))
+summary(oil_spurious_reg)
 #+end_src
 
 #+RESULTS:
+#+begin_example
 
-#+begin_src R :session ecm
+Call:
+lm(formula = I(log(oil_data$PET.RCLC2.W)) ~ I(log(oil_data$PET.RCLC1.W)))
 
+Residuals:
+     Min       1Q   Median       3Q      Max 
+-0.12913 -0.01096  0.00131  0.00853  1.58039 
+
+Coefficients:
+                             Estimate Std. Error t value Pr(>|t|)    
+(Intercept)                  0.002357   0.005397   0.437    0.662    
+I(log(oil_data$PET.RCLC1.W)) 0.999474   0.001473 678.355   <2e-16 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 0.04251 on 1965 degrees of freedom
+Multiple R-squared:  0.9957,	Adjusted R-squared:  0.9957 
+F-statistic: 4.602e+05 on 1 and 1965 DF,  p-value: < 2.2e-16
+#+end_example
+
+#+begin_src R :session ecm :results output :exports both :eval no
+adf.test(oil_spurious_reg$resid)
 #+end_src
+
+#+RESULTS:
+: 
+: 	Augmented Dickey-Fuller Test
+: 
+: data:  oil_spurious_reg$resid
+: Dickey-Fuller = -9.0417, Lag order = 12, p-value = 0.01
+: alternative hypothesis: stationary
+: 
+: Warning message:
+: In adf.test(oil_spurious_reg$resid) : p-value smaller than printed p-value
+
+We can reject the null of a unit root in the residuals, which is evidence that the two series are cointegrated.
+
+
+
+
+
+#+begin_comment
+# * Deposit vs Loan Rates
+
+- Auto loans (new car 48 months).
+- Credit Cards
+
+#+begin_src R :session ecm :eval yes :results none :exports code
+auto_loan_rates <- getSymbols('TERMCBAUTO48NS', auto.assign=FALSE, src="FRED")
+credit_card_rate <- getSymbols('TERMCBCCALLNS', auto.assign=FALSE, src="FRED")
+data_rates <- merge.xts(auto_loan_rates, credit_card_rate, join = 'inner')
+names(data_rates) <- c("auto", "cc")
+data_rates <- data_rates[complete.cases(data_rates), ]
+#+end_src
+
+#+begin_src R :session ecm :results output :exports both
+spurious_reg_rates <- lm(data_rates$auto ~ data_rates$cc)
+summary(spurious_reg_rates)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+Call:
+lm(formula = data_rates$auto["2010-01-01/"] ~ data_rates$cc["2010-01-01/"])
+
+Residuals:
+    Min      1Q  Median      3Q     Max 
+-0.7090 -0.3250 -0.1407  0.1090  1.2315 
+
+Coefficients:
+                             Estimate Std. Error t value Pr(>|t|)    
+(Intercept)                   1.19854    0.81539   1.470    0.148    
+data_rates$cc["2010-01-01/"]  0.28191    0.06127   4.601 3.09e-05 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 0.5213 on 48 degrees of freedom
+Multiple R-squared:  0.3061,	Adjusted R-squared:  0.2916 
+F-statistic: 21.17 on 1 and 48 DF,  p-value: 3.088e-05
+#+end_example
+
+#+begin_src R :session ecm :results output :exports both
+adf.test(spurious_reg_rates$residuals)
+#+end_src
+
+#+RESULTS:
+: 
+: 	Augmented Dickey-Fuller Test
+: 
+: data:  spurious_reg_rates$residualso
+: Dickey-Fuller = -1.8846, Lag order = 3, p-value = 0.6206
+: alternative hypothesis: stationary
+
+Looking at the residuals we may have regime switching.
+
+
+# * Deposits and Loans
+
+#+begin_src R :session ecm :eval yes :results none :exports code
+deposits <- getSymbols('DPSACBM027SBOG', auto.assign=FALSE, src="FRED")
+loans <- getSymbols('BUSLOANS', auto.assign=FALSE, src="FRED")
+data <- merge.xts(deposits, loans, join = 'inner')
+names(data) <- c("deposits", "loans")
+#+end_src
+
+# ** Spurious Regression
+
+Regressing the log of commercial bank loans on the log of deposits produces an adjusted $r^2$ of 0.97, which is the hallmark of a spurious regression.  
+
+#+begin_src R :session ecm :results output :exports both
+spurious_reg <- lm(I(log(data$loans['2010-01-01/'])) ~ I(log(data$deposits['2010-01-01/'])))
+summary(spurious_reg)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+Call:
+lm(formula = I(log(data$loans["2010-01-01/"])) ~ I(log(data$deposits["2010-01-01/"])))
+
+Residuals:
+      Min        1Q    Median        3Q       Max 
+-0.197786 -0.058711 -0.001824  0.075246  0.177018 
+
+Coefficients:
+                                     Estimate Std. Error t value Pr(>|t|)    
+(Intercept)                          -1.91246    0.26492  -7.219 2.44e-11 ***
+I(log(data$deposits["2010-01-01/"]))  1.01249    0.02838  35.673  < 2e-16 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 0.08701 on 150 degrees of freedom
+Multiple R-squared:  0.8946,	Adjusted R-squared:  0.8939 
+F-statistic:  1273 on 1 and 150 DF,  p-value: < 2.2e-16
+#+end_example
+
+
+#+begin_src R :session ecm :results output :exports both
+adf.test(spurious_reg$resid)
+#+end_src
+
+#+RESULTS:
+: 
+: 	Augmented Dickey-Fuller Test
+: 
+: data:  spurious_reg$resid
+: Dickey-Fuller = -1.8298, Lag order = 5, p-value = 0.6473
+: alternative hypothesis: stationary
+
+Ouch, residuals to not reject a unit root.
+
+
+#+end_comment
